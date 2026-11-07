@@ -69,6 +69,7 @@ The dataset is imbalanced, as the number of sessions without a purchase is consi
 ## c. GitHub Repository Link
 
 **GitHub Repository:** https://github.com/Ashking1956/BITS-ML-Assignment_2.git
+
 **Project Link:** https://bits-ml-assignment2-qsmzvx94cmyjnew3tbc2xe.streamlit.app/
 
 The repository should contain the following project files:
