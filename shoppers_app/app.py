@@ -52,7 +52,6 @@ PAGES = [
     "10 · Model Evaluation",
     "11 · Model Comparison",
     "12 · Conclusion & Recommendation",
-    "Extra · Test saved models on a CSV",
 ]
 
 
@@ -1157,75 +1156,6 @@ def load_saved():
             error=f"Could not load saved models ({type(e).__name__}: {e}). Re-run `python train_models.py` with the same scikit-learn version as requirements.txt."
         )
 
-def page_saved(raw, D):
-    st.header("Test the saved models on a CSV")
-    st.markdown(
-        "This page loads the **already trained** models from the `model/` folder and evaluates them on the CSV you upload. "
-        "**Nothing is retrained.** The CSV needs the target column `Revenue` plus either the original dataset columns or the processed feature columns."
-    )
-    saved = load_saved()
-    if saved["error"]:
-        st.error(saved["error"])
-        return
-    up = st.file_uploader("Upload test CSV", type="csv", key="test_upload")
-    if up is not None:
-        data = read_csv_bytes(up.getvalue())
-        st.caption(f"Using uploaded file ({len(data):,} rows).")
-    elif (ROOT / "test_data.csv").exists():
-        data = read_csv_path(str(ROOT / "test_data.csv"))
-        st.caption(
-            f"No file uploaded, so the bundled `test_data.csv` is used ({len(data):,} rows)."
-        )
-    else:
-        st.info("Upload a CSV to continue.")
-        return
-    if mp.TARGET not in data.columns:
-        st.error(f"The CSV must contain the target column `{mp.TARGET}`.")
-        return
-    try:
-        X, y = mp.prepare_for_saved_models(data, saved["cols"])
-    except Exception as e:
-        st.error(str(e))
-        return
-    if y.nunique() < 2:
-        st.error(
-            "The target column needs both classes (0 and 1) to compute AUC and MCC."
-        )
-        return
-    with st.expander("Preview of the uploaded data"):
-        st.dataframe(data.head(20))
-    allres = {n: mp.evaluate(mdl, X, y) for n, mdl in saved["models"].items()}
-    table = pd.DataFrame({n: r["metrics"] for n, r in allres.items()}).T[mp.METRICS]
-    st.subheader("All five saved models on this data")
-    st.dataframe(table.style.highlight_max(axis=0, color="#b2f2bb").format("{:.4f}"))
-    long = (
-        table.reset_index()
-        .melt(id_vars="index", var_name="Metric", value_name="Score")
-        .rename(columns={"index": "Model"})
-    )
-    st.plotly_chart(
-        px.bar(
-            long, x="Metric", y="Score", color="Model", barmode="group"
-        ).update_layout(height=400, margin=dict(t=10))
-    )
-    st.subheader("Inspect one model")
-    name = st.selectbox("Model", mp.MODEL_NAMES, key="saved_model_pick")
-    r = allres[name]
-    metric_row(r["metrics"])
-    a, b = st.columns(2)
-    a.plotly_chart(cm_fig(r["cm"], "Confusion matrix"), key="saved_cm")
-    b.plotly_chart(
-        roc_fig({name: (r["fpr"], r["tpr"])}, {name: r["metrics"]["AUC"]}),
-        key="saved_roc",
-    )
-    st.markdown("**Classification report**")
-    rep = pd.DataFrame(
-        classification_report(
-            y, r["pred"], target_names=LABELS, output_dict=True, zero_division=0
-        )
-    ).T.round(3)
-    st.dataframe(rep)
-
 PAGE_FUNCS = [
     page_intro,
     page_dataset,
@@ -1239,7 +1169,6 @@ PAGE_FUNCS = [
     page_eval,
     page_compare,
     page_conclusion,
-    page_saved,
 ]
 
 # ====================================================================== main

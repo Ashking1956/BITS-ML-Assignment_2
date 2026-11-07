@@ -14,6 +14,7 @@ Writes:
     model/metrics.csv           test-set metrics of the 5 models
     test_data.csv               the hold-out rows, in the original column format
 """
+
 import json
 import sys
 from pathlib import Path
@@ -23,8 +24,14 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    accuracy_score, confusion_matrix, f1_score, matthews_corrcoef,
-    precision_score, recall_score, roc_auc_score, roc_curve
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    matthews_corrcoef,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
 )
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
@@ -53,46 +60,79 @@ def detect_columns(df):
     for c in features:
         s = df[c]
         if s.dtype == bool or not pd.api.types.is_numeric_dtype(s):
-            cat_cols.append(c)       # text or True/False
-        elif pd.api.types.is_integer_dtype(s) and s.min() >= 1 and s.nunique() == s.max():
-            cat_cols.append(c)       # ID codes 1..k with no gaps (Browser, Region ...)
+            cat_cols.append(c)  # text or True/False
+        elif (
+            pd.api.types.is_integer_dtype(s) and s.min() >= 1 and s.nunique() == s.max()
+        ):
+            cat_cols.append(c)  # ID codes 1..k with no gaps (Browser, Region ...)
         else:
-            num_cols.append(c)       # real numbers and counts
+            num_cols.append(c)  # real numbers and counts
     return features, num_cols, cat_cols
+
+
+FEATURES, NUM_COLS, CAT_COLS = detect_columns(pd.read_csv(ROOT / DATA_FILE))
+NEW_FEATS = [
+    "TotalPages",
+    "TotalDuration",
+    "AvgTimePerPage",
+    "HasPageValue",
+    "IsReturning",
+    "IsHolidaySeason",
+    "log_ProductRelated_Duration",
+]
+
 
 def text_columns(df):
     """Columns that hold text (these get one-hot encoded)."""
-    return [c for c in df.columns if df[c].dtype != bool and not pd.api.types.is_numeric_dtype(df[c])]
+    return [
+        c
+        for c in df.columns
+        if df[c].dtype != bool and not pd.api.types.is_numeric_dtype(df[c])
+    ]
+
 
 def to_int_bools(df):
     """True/False columns -> 1/0."""
     return df.astype({c: int for c in df.select_dtypes("bool").columns})
+
 
 # ------------------------------------------------------------------- data steps
 def clean(raw):
     """Remove duplicates and turn True/False columns into 1/0."""
     return to_int_bools(raw.drop_duplicates().reset_index(drop=True))
 
+
 def engineer(df):
     """Add the 7 engineered features."""
     fe = df.copy()
     fe["TotalPages"] = fe["Administrative"] + fe["Informational"] + fe["ProductRelated"]
-    fe["TotalDuration"] = (fe["Administrative_Duration"] + fe["Informational_Duration"] + fe["ProductRelated_Duration"])
-    fe["AvgTimePerPage"] = (fe["TotalDuration"] / fe["TotalPages"].replace(0, np.nan)).fillna(0)
+    fe["TotalDuration"] = (
+        fe["Administrative_Duration"]
+        + fe["Informational_Duration"]
+        + fe["ProductRelated_Duration"]
+    )
+    fe["AvgTimePerPage"] = (
+        fe["TotalDuration"] / fe["TotalPages"].replace(0, np.nan)
+    ).fillna(0)
     fe["HasPageValue"] = (fe["PageValues"] > 0).astype(int)
     fe["IsReturning"] = (fe["VisitorType"] == "Returning_Visitor").astype(int)
     fe["IsHolidaySeason"] = fe["Month"].isin(["Nov", "Dec"]).astype(int)
     fe["log_ProductRelated_Duration"] = np.log1p(fe["ProductRelated_Duration"])
     return fe
 
+
 def encode(fe):
     """One-hot encode the text columns (drop_first=True), True/False -> 1/0."""
     return to_int_bools(pd.get_dummies(fe, columns=text_columns(fe), drop_first=True))
 
+
 def split(enc):
     """Stratified train/test split."""
     X, y = enc.drop(columns=[TARGET]), enc[TARGET]
-    return train_test_split(X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE)
+    return train_test_split(
+        X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
+    )
+
 
 def prepare_for_saved_models(df, feature_columns):
     """Turn an uploaded test CSV into the feature matrix the saved models expect.
@@ -103,7 +143,7 @@ def prepare_for_saved_models(df, feature_columns):
     """
     df = df.copy()
     y = df[TARGET].astype(int) if TARGET in df.columns else None
-    if all(c in df.columns for c in feature_columns): # already processed
+    if all(c in df.columns for c in feature_columns):  # already processed
         return df[feature_columns], y
 
     raw_columns = json.loads((MODEL_DIR / "raw_columns.json").read_text())
@@ -116,21 +156,29 @@ def prepare_for_saved_models(df, feature_columns):
     # the category dropped at training time has no column -> it is simply all zeros
     return enc.reindex(columns=feature_columns, fill_value=0), y
 
+
 # ------------------------------------------------------------------- models
 def build_models():
     return {
-        "Logistic Regression": make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)),
-        "Decision Tree":       DecisionTreeClassifier(max_depth=5, random_state=RANDOM_STATE),
-        "KNN":                 make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5)),
-        "Naive Bayes":         make_pipeline(StandardScaler(), GaussianNB()),
-        "SVM":                 make_pipeline(StandardScaler(), SVC(kernel="rbf", random_state=RANDOM_STATE)),
+        "Logistic Regression": make_pipeline(
+            StandardScaler(),
+            LogisticRegression(max_iter=1000, random_state=RANDOM_STATE),
+        ),
+        "Decision Tree": DecisionTreeClassifier(max_depth=5, random_state=RANDOM_STATE),
+        "KNN": make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5)),
+        "Naive Bayes": make_pipeline(StandardScaler(), GaussianNB()),
+        "SVM": make_pipeline(
+            StandardScaler(), SVC(kernel="rbf", random_state=RANDOM_STATE)
+        ),
     }
+
 
 def continuous_score(model, X):
     """Probability if the model has one, otherwise the decision function (SVM)."""
     if hasattr(model, "predict_proba"):
         return model.predict_proba(X)[:, 1]
     return model.decision_function(X)
+
 
 def evaluate(model, X_test, y_test):
     """Predict on data the model was not trained on and compute the 6 metrics."""
@@ -148,21 +196,26 @@ def evaluate(model, X_test, y_test):
             "MCC": matthews_corrcoef(y_test, pred),
         },
         "cm": confusion_matrix(y_test, pred, labels=[0, 1]),
-        "fpr": fpr, "tpr": tpr, "pred": pred, "score": score,
+        "fpr": fpr,
+        "tpr": tpr,
+        "pred": pred,
+        "score": score,
     }
+
 
 def fit_and_evaluate(name, X_train, y_train, X_test, y_test):
     model = build_models()[name]
     model.fit(X_train, y_train)
     return model, evaluate(model, X_test, y_test)
 
+
 # ------------------------------------------------------------------- training script
 def slug(name):
     return name.lower().replace(" ", "_")
 
+
 def train(csv_path=ROOT / DATA_FILE):
     raw = pd.read_csv(csv_path)
-    features, num_cols, cat_cols = detect_columns(raw)
     df = clean(raw)
     fe = engineer(df)
 
@@ -178,7 +231,7 @@ def train(csv_path=ROOT / DATA_FILE):
         print(f"saved {slug(name)}.joblib")
 
     (MODEL_DIR / "feature_columns.json").write_text(json.dumps(list(X_train.columns)))
-    (MODEL_DIR / "raw_columns.json").write_text(json.dumps(features))
+    (MODEL_DIR / "raw_columns.json").write_text(json.dumps(FEATURES))
     results = pd.DataFrame(rows).set_index("Model").round(4)
     results.to_csv(MODEL_DIR / "metrics.csv")
 
@@ -186,6 +239,7 @@ def train(csv_path=ROOT / DATA_FILE):
     df.loc[X_test.index].to_csv(ROOT / "test_data.csv", index=False)
     print(f"test_data.csv: {len(X_test)} rows\n")
     print(results.to_string())
+
 
 if __name__ == "__main__":
     train(sys.argv[1] if len(sys.argv) > 1 else ROOT / DATA_FILE)
